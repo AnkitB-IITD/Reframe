@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Unspiral — Play Screenshot Maker</title>
+<style>
+  :root { --teal:#127a66; --ink:#14201c; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+         color:#14201c; background:#eef2f0; display:flex; min-height:100vh; }
+  .panel { width:360px; flex:none; background:#fff; border-right:1px solid #dbe4e0; padding:22px; overflow:auto; height:100vh; }
+  .panel h1 { font-size:1.15rem; margin:0 0 4px; }
+  .panel p.sub { margin:0 0 18px; color:#5d6f68; font-size:.85rem; }
+  label { display:block; font-size:.8rem; font-weight:650; margin:14px 0 5px; color:#3a4a44; }
+  input[type=text], select, textarea { width:100%; padding:9px 11px; border:1px solid #c7d3ce; border-radius:9px; font:inherit; }
+  textarea { resize:vertical; min-height:46px; }
+  .row { display:flex; gap:8px; align-items:center; }
+  .row > * { flex:1; }
+  .drop { border:2px dashed #b7c7c1; border-radius:12px; padding:18px; text-align:center; color:#6d7f78; font-size:.85rem; cursor:pointer; background:#f7faf9; }
+  .drop.hot { border-color:var(--teal); background:#e8f5f0; }
+  .presets { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+  .presets button { font-size:.72rem; padding:6px 9px; border:1px solid #c7d3ce; border-radius:999px; background:#fff; cursor:pointer; }
+  .presets button:hover { background:#eef5f2; }
+  .swatches { display:flex; gap:8px; }
+  .swatch { width:34px; height:34px; border-radius:8px; border:2px solid transparent; cursor:pointer; }
+  .swatch.sel { border-color:#14201c; }
+  .btn { width:100%; margin-top:18px; padding:13px; border:0; border-radius:11px; background:var(--teal); color:#fff; font-weight:700; font-size:1rem; cursor:pointer; }
+  .btn:hover { background:#0e6957; }
+  .toggle { display:flex; align-items:center; gap:8px; margin-top:14px; font-size:.85rem; }
+  .stage { flex:1; display:grid; place-items:center; padding:24px; overflow:auto; }
+  canvas { width:auto; height:min(86vh,860px); box-shadow:0 12px 40px -12px rgba(0,0,0,.4); border-radius:10px; background:#ccc; }
+  .hint { font-size:.74rem; color:#7c8b85; margin-top:10px; line-height:1.5; }
+  kbd { background:#eee; border-radius:4px; padding:0 5px; font-size:.72rem; }
+</style>
+</head>
+<body>
+  <div class="panel">
+    <h1>Screenshot Maker</h1>
+    <p class="sub">Turn raw app screenshots into branded 1080×1920 Play images.</p>
+
+    <div class="drop" id="drop">Click or drop a screenshot here<br><span style="font-size:.75rem">PNG/JPG from your phone or emulator</span></div>
+    <input type="file" id="file" accept="image/*" hidden />
+
+    <label>Headline</label>
+    <input type="text" id="headline" value="Work through a thought, gently" />
+    <div class="presets" id="presets"></div>
+
+    <label>Sub-caption (optional)</label>
+    <input type="text" id="subtext" value="A guided 7-step CBT thought record" />
+
+    <label>Background</label>
+    <div class="swatches" id="swatches"></div>
+
+    <label>Caption position</label>
+    <div class="row">
+      <select id="pos">
+        <option value="top" selected>Top</option>
+        <option value="bottom">Bottom</option>
+      </select>
+      <select id="frame">
+        <option value="dark" selected>Dark phone frame</option>
+        <option value="light">Light phone frame</option>
+        <option value="none">No frame</option>
+      </select>
+    </div>
+
+    <label class="toggle"><input type="checkbox" id="footer" checked /> Show “Unspiral” footer</label>
+
+    <button class="btn" id="download">⬇ Download PNG (1080×1920)</button>
+    <p class="hint">Make 2–8 of these (vary the headline per screen). Play needs at least 2.
+      Tip: capture clean app states first — Home, a wizard step, Insights, a saved record.</p>
+  </div>
+
+  <div class="stage">
+    <canvas id="c" width="1080" height="1920"></canvas>
+  </div>
+
+<script>
+const W = 1080, H = 1920;
+const c = document.getElementById('c');
+const ctx = c.getContext('2d');
+
+const BACKGROUNDS = [
+  ['#1aa088', '#0a5546'],   // brand teal
+  ['#18b59a', '#0c6f73'],   // teal→deep cyan
+  ['#2a9d8f', '#1d3b57'],   // teal→navy
+  ['#e07a52', '#9a3d2e'],   // warm coral
+  ['#3a4a64', '#11151f']    // slate (neutral)
+];
+const PRESETS = [
+  'Work through a thought, gently',
+  'Notice your thinking traps',
+  'See how you feel, before & after',
+  '100% private — on your device',
+  'Pick up where you left off',
+  'Built on real CBT research'
+];
+
+const state = { img:null, headline:'', subtext:'', bg:0, pos:'top', frame:'dark', footer:true };
+
+function roundRect(x,y,w,h,r){
+  if (ctx.roundRect){ ctx.beginPath(); ctx.roundRect(x,y,w,h,r); return; }
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+}
+
+function drawCover(img,x,y,w,h){
+  const ir = img.width/img.height, br = w/h;
+  let sw,sh,sx,sy;
+  if (ir > br){ sh=img.height; sw=sh*br; sx=(img.width-sw)/2; sy=0; }
+  else { sw=img.width; sh=sw/br; sx=0; sy=(img.height-sh)/2; }
+  ctx.drawImage(img,sx,sy,sw,sh,x,y,w,h);
+}
+
+function leafPath(scale, ox, oy){
+  // the app's leaf mark (24x24) → Path2D, translated/scaled
+  const p = new Path2D();
+  // approximate via three strokes drawn separately; return commands set
+  return null; // (we draw the leaf with strokes below instead)
+}
+
+function drawLeaf(cx, cy, s, color){
+  ctx.save();
+  ctx.translate(cx, cy); ctx.scale(s, s); ctx.translate(-12,-12);
+  ctx.strokeStyle = color; ctx.lineWidth = 1.7; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.fillStyle='none';
+  ctx.beginPath(); ctx.moveTo(20,4); ctx.lineTo(9,15); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(20,4);
+  ctx.bezierCurveTo(13,4,6,7,6,15);
+  ctx.lineTo(6,18); ctx.lineTo(9,18);
+  ctx.bezierCurveTo(17,18,20,11,20,4); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(5,19); ctx.lineTo(9,15); ctx.stroke();
+  ctx.restore();
+}
+
+function render(){
+  // background gradient
+  const [a,b] = BACKGROUNDS[state.bg];
+  const g = ctx.createLinearGradient(0,0,W,H);
+  g.addColorStop(0,a); g.addColorStop(1,b);
+  ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+
+  // soft glow
+  const rg = ctx.createRadialGradient(W*0.25,H*0.18,0,W*0.25,H*0.18,W*0.9);
+  rg.addColorStop(0,'rgba(255,255,255,0.12)'); rg.addColorStop(0.6,'rgba(255,255,255,0)');
+  ctx.fillStyle = rg; ctx.fillRect(0,0,W,H);
+
+  const capTop = state.pos === 'top';
+  const captionY = capTop ? 150 : H - 250;
+
+  // caption
+  ctx.textAlign='center'; ctx.fillStyle='#fff';
+  ctx.font = '800 68px Arial, sans-serif';
+  wrapText(state.headline, W/2, captionY, W-160, 76);
+  if (state.subtext.trim()){
+    ctx.font = '500 38px Arial, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.86)';
+    const lines = state.headline ? countLines(state.headline, W-160, '800 68px Arial, sans-serif') : 1;
+    ctx.fillText(state.subtext, W/2, captionY + lines*76 + 14, W-160);
+  }
+
+  // phone area
+  const phoneW = 720, phoneH = 1380;
+  const phoneX = (W - phoneW)/2;
+  const phoneY = capTop ? 430 : 150;
+  const bezel = state.frame==='none' ? 0 : 22;
+  const frameColor = state.frame==='light' ? '#f3f6f5' : '#0c1311';
+
+  if (state.frame !== 'none'){
+    ctx.save();
+    ctx.shadowColor='rgba(0,0,0,0.35)'; ctx.shadowBlur=40; ctx.shadowOffsetY=18;
+    ctx.fillStyle = frameColor; roundRect(phoneX,phoneY,phoneW,phoneH,64); ctx.fill();
+    ctx.restore();
+  }
+
+  const sx=phoneX+bezel, sy=phoneY+bezel, sw=phoneW-2*bezel, sh=phoneH-2*bezel;
+  ctx.save(); roundRect(sx,sy,sw,sh,state.frame==='none'?40:44); ctx.clip();
+  if (state.img){ drawCover(state.img,sx,sy,sw,sh); }
+  else { ctx.fillStyle='#dfe7e4'; ctx.fillRect(sx,sy,sw,sh);
+    ctx.fillStyle='#8aa39a'; ctx.font='600 40px Arial,sans-serif'; ctx.textAlign='center';
+    ctx.fillText('Drop a screenshot →', W/2, sy+sh/2); }
+  ctx.restore();
+
+  // footer brand
+  if (state.footer){
+    const fy = H - 70;
+    ctx.fillStyle='rgba(255,255,255,0.92)'; ctx.textAlign='center'; ctx.font='700 40px Arial,sans-serif';
+    ctx.fillText('Unspiral', W/2 + 24, fy+14);
+    drawLeaf(W/2 - 92, fy, 2.0, 'rgba(255,255,255,0.92)');
+  }
+}
+
+function countLines(text,maxW,font){
+  ctx.save(); ctx.font=font; const words=text.split(' '); let line='',n=1;
+  for (const w of words){ if (ctx.measureText((line?line+' ':'')+w).width>maxW && line){ n++; line=w; } else line=(line?line+' ':'')+w; }
+  ctx.restore(); return n;
+}
+function wrapText(text,x,y,maxW,lh){
+  const words=text.split(' '); let line='', yy=y;
+  for (const w of words){
+    if (ctx.measureText((line?line+' ':'')+w).width>maxW && line){ ctx.fillText(line,x,yy); line=w; yy+=lh; }
+    else line=(line?line+' ':'')+w;
+  }
+  ctx.fillText(line,x,yy);
+}
+
+// ---- UI wiring ----
+const presetsEl=document.getElementById('presets');
+PRESETS.forEach(p=>{ const b=document.createElement('button'); b.textContent=p;
+  b.onclick=()=>{ document.getElementById('headline').value=p; state.headline=p; render(); }; presetsEl.appendChild(b); });
+
+const sw=document.getElementById('swatches');
+BACKGROUNDS.forEach((g,i)=>{ const d=document.createElement('div'); d.className='swatch'+(i===0?' sel':'');
+  d.style.background=`linear-gradient(135deg,${g[0]},${g[1]})`;
+  d.onclick=()=>{ state.bg=i; [...sw.children].forEach(x=>x.classList.remove('sel')); d.classList.add('sel'); render(); };
+  sw.appendChild(d); });
+
+const fileEl=document.getElementById('file'), drop=document.getElementById('drop');
+function loadFile(f){ if(!f) return; const r=new FileReader(); r.onload=e=>{ const im=new Image(); im.onload=()=>{ state.img=im; render(); }; im.src=e.target.result; }; r.readAsDataURL(f); }
+drop.onclick=()=>fileEl.click();
+fileEl.onchange=e=>loadFile(e.target.files[0]);
+['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('hot');}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('hot');}));
+drop.addEventListener('drop',e=>loadFile(e.dataTransfer.files[0]));
+
+document.getElementById('headline').oninput=e=>{state.headline=e.target.value;render();};
+document.getElementById('subtext').oninput=e=>{state.subtext=e.target.value;render();};
+document.getElementById('pos').onchange=e=>{state.pos=e.target.value;render();};
+document.getElementById('frame').onchange=e=>{state.frame=e.target.value;render();};
+document.getElementById('footer').onchange=e=>{state.footer=e.target.checked;render();};
+
+document.getElementById('download').onclick=()=>{
+  c.toBlob(b=>{ const a=document.createElement('a');
+    a.href=URL.createObjectURL(b);
+    a.download='unspiral-screenshot-'+Date.now()+'.png'; a.click(); URL.revokeObjectURL(a.href); },'image/png');
+};
+
+// init
+state.headline=document.getElementById('headline').value;
+state.subtext=document.getElementById('subtext').value;
+render();
+</script>
+</body>
+</html>

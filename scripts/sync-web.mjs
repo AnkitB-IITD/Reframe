@@ -11,6 +11,7 @@ const www = join(root, 'www');
 
 const ENTRIES = [
   'index.html',
+  'privacy.html',
   'manifest.webmanifest',
   'sw.js',
   'icon.svg',

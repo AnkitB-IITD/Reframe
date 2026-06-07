@@ -83,7 +83,7 @@ Play requires a public contact email on the listing. Use the same one as in
 |---|---|---|
 | App icon | 512×512 PNG (32-bit) | ✅ `icons/icon-512.png` |
 | Feature graphic | 1024×500 PNG/JPG | ✅ `store-assets/feature-graphic.png` (regenerate with `npm run graphics`; source `feature-graphic.svg`) |
-| Phone screenshots | 2–8, PNG/JPG, 16:9 or 9:16, 320–3840 px | ⬜ capture: Home, the wizard (a step), Insights, a saved record, Settings |
+| Phone screenshots | 2–8, PNG/JPG, 9:16, 1080×1920 | ⬜ capture Home / wizard step / Insights / a saved record, then frame them with **`store-assets/screenshot-maker.html`** (drop screenshot → pick caption → download) |
 | Privacy policy URL | public https link | ✅ host `privacy.html` (e.g. https://ankitb-iitd.github.io/Unspiral-CBT/privacy.html) |
 | Tablet screenshots | optional | ⬜ optional |
 
